@@ -31,7 +31,16 @@
 // ==================================================
 
 // Rendering scale only. Source PNGs are never resized.
-const SPRITE_SCALE = 0.4;
+// Per-state values make the ant read as the same body size in every
+// state (idle 0.40 is the reference; matched on abdomen/body size).
+const SPRITE_SCALE = {
+  idle: 0.40,
+  walk: 0.49,
+  run: 0.44,
+  turn: 0.44,
+  interact: 0.40,
+  dead: 0.40
+};
 
 const ANIMATIONS = {
   idle:     { count: 2, interval: 400, anchorX: 172, anchorY: 93,  loop: true  },
@@ -261,7 +270,7 @@ function drawPlayer() {
   // anchor position snapped to whole device pixels
   const ax = Math.round(player.x * DPR);
   const ay = Math.round(player.y * DPR);
-  const s = SPRITE_SCALE * DPR;
+  const s = SPRITE_SCALE[player.anim] * DPR;
 
   // turn frames are a front/back view and are never mirrored
   const flip = player.facing === 1 && player.anim !== "turn";
