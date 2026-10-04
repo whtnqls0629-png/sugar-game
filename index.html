@@ -53,6 +53,12 @@ for (const [name, anim] of Object.entries(ANIMATIONS)) {
 const WALK_SPEED = 70;
 const RUN_SPEED = 170;
 
+// turn frame mapping (index into ANIMATIONS.turn.images)
+// turn_01: larger, darker eyes and shorter abdomen -> faces the viewer
+// turn_02: smaller eyes and longer abdomen -> faces away
+const TURN_FRONT = 0;   // ArrowDown / S
+const TURN_BACK = 1;    // ArrowUp / W
+
 // ==================================================
 // CANVAS
 // ==================================================
@@ -108,7 +114,8 @@ const pressed = new Set();
 const GAME_KEYS = new Set([
   "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown",
   "KeyA", "KeyD", "KeyW", "KeyS",
-  "ShiftLeft", "ShiftRight", "KeyE", "KeyK"
+  "ShiftLeft", "ShiftRight", "KeyE",
+  "KeyK"  // DEBUG: dead animation test only
 ]);
 
 window.addEventListener("keydown", e => {
@@ -171,63 +178,55 @@ function updateAnimation(dt) {
   }
 }
 
+// Priority: DEAD > INTERACT > RUN > WALK > TURN > IDLE
 function updatePlayer(dt) {
   const dx = axis(["ArrowLeft", "KeyA"], ["ArrowRight", "KeyD"]);
   const dy = axis(["ArrowUp", "KeyW"], ["ArrowDown", "KeyS"]);
   const running = held.has("ShiftLeft") || held.has("ShiftRight");
 
-  // ---- dead: K toggles (test key; no story trigger yet)
-  if (player.anim === "dead") {
-    if (pressed.has("KeyK")) setAnim("idle");
-    return;
-  }
+  // ---- DEAD: final state, ignores all input until page refresh
+  if (player.anim === "dead") return;
+
+  // DEBUG: K plays the dead animation for sprite checking only.
+  // Not a game mechanic. Remove when a real death trigger exists.
   if (pressed.has("KeyK")) {
     setAnim("dead");
     return;
   }
 
-  // ---- one-shot animations lock input until they finish
+  // ---- INTERACT: plays once, movement ignored until it finishes
   if (player.anim === "interact") {
     if (player.finished) setAnim("idle");
     else return;
   }
-
-  if (player.anim === "turn") {
-    if (player.finished) {
-      player.facing = -player.facing;
-      setAnim("idle");
-    } else {
-      return;
-    }
-  }
-
-  // ---- interact
   if (pressed.has("KeyE")) {
     setAnim("interact");
     return;
   }
 
-  // ---- direction change plays the turn animation first
-  if (dx !== 0 && dx !== player.facing) {
-    setAnim("turn");
+  // ---- RUN / WALK: horizontal only. Right = mirrored left sprite.
+  if (dx !== 0) {
+    player.facing = dx;
+    const speed = running ? RUN_SPEED : WALK_SPEED;
+    player.x += dx * speed * dt / 1000;
+    setAnim(running ? "run" : "walk");
+
+    // keep the body on screen
+    const margin = 40;
+    player.x = Math.max(margin, Math.min(W - margin, player.x));
     return;
   }
 
-  // ---- move
-  if (dx !== 0 || dy !== 0) {
-    const speed = running ? RUN_SPEED : WALK_SPEED;
-    const len = Math.hypot(dx, dy);
-    player.x += (dx / len) * speed * dt / 1000;
-    player.y += (dy / len) * speed * dt / 1000;
-    setAnim(running ? "run" : "walk");
-  } else {
-    setAnim("idle");
+  // ---- TURN: up/down only changes the view, no Y movement yet
+  if (dy !== 0) {
+    setAnim("turn");
+    player.frame = dy < 0 ? TURN_BACK : TURN_FRONT;
+    player.frameTime = 0;  // hold the frame while the key is down
+    return;
   }
 
-  // keep the body on screen
-  const margin = 40;
-  player.x = Math.max(margin, Math.min(W - margin, player.x));
-  player.y = Math.max(margin, Math.min(H - margin, player.y));
+  // ---- IDLE
+  setAnim("idle");
 }
 
 // ==================================================
