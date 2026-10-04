@@ -118,15 +118,36 @@ const GAME_KEYS = new Set([
   "KeyK"  // DEBUG: dead animation test only
 ]);
 
+// Some setups (keyboard remappers, remote desktop, some IMEs) send
+// key events with an empty e.code. Fall back to e.key, then keyCode.
+const KEY_FALLBACK = {
+  arrowleft: "ArrowLeft", arrowright: "ArrowRight",
+  arrowup: "ArrowUp", arrowdown: "ArrowDown",
+  a: "KeyA", d: "KeyD", w: "KeyW", s: "KeyS", e: "KeyE", k: "KeyK",
+  "ㅁ": "KeyA", "ㅇ": "KeyD", "ㅈ": "KeyW", "ㄴ": "KeyS", "ㄷ": "KeyE", "ㅏ": "KeyK",
+  shift: "ShiftLeft"
+};
+const KEYCODE_FALLBACK = {
+  37: "ArrowLeft", 38: "ArrowUp", 39: "ArrowRight", 40: "ArrowDown",
+  65: "KeyA", 68: "KeyD", 87: "KeyW", 83: "KeyS", 69: "KeyE", 75: "KeyK",
+  16: "ShiftLeft"
+};
+
+function keyId(e) {
+  if (e.code) return e.code;
+  return KEY_FALLBACK[(e.key || "").toLowerCase()] || KEYCODE_FALLBACK[e.keyCode] || "";
+}
+
 window.addEventListener("keydown", e => {
-  if (!GAME_KEYS.has(e.code)) return;
+  const id = keyId(e);
+  if (!GAME_KEYS.has(id)) return;
   e.preventDefault();
-  if (!held.has(e.code)) pressed.add(e.code);
-  held.add(e.code);
+  if (!held.has(id)) pressed.add(id);
+  held.add(id);
 });
 
 window.addEventListener("keyup", e => {
-  held.delete(e.code);
+  held.delete(keyId(e));
 });
 
 window.addEventListener("blur", () => held.clear());
@@ -274,8 +295,19 @@ function loop(time) {
   requestAnimationFrame(loop);
 }
 
+// Make sure the page has keyboard focus from load, and after any click
+canvas.tabIndex = 0;
+canvas.style.outline = "none";
+canvas.focus();
+window.addEventListener("pointerdown", () => canvas.focus());
+
+// Build stamp: lets you confirm in DevTools that the browser is not
+// running a cached older index.html
+console.info("[SUGAR] build: controller-input-fix");
+
 loadAnimations()
   .then(() => {
+    // initial spawn only; never reset inside the loop
     player.x = W / 2;
     player.y = H / 2;
     requestAnimationFrame(loop);
