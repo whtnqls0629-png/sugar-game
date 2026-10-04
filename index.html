@@ -3,20 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SUGAR — Prototype 01</title>
-
+<title>SUGAR — Step 2: Idle</title>
 <style>
-  * {
-    box-sizing: border-box;
-  }
-
   html, body {
     margin: 0;
     width: 100%;
     height: 100%;
     overflow: hidden;
-    background: #080808;
-    font-family: "Courier New", monospace;
+    background: #d9d6cf;
   }
 
   canvas {
@@ -25,688 +19,136 @@
     height: 100vh;
     image-rendering: pixelated;
   }
-
-  #title {
-    position: fixed;
-    top: 28px;
-    left: 32px;
-    color: rgba(255,255,255,.45);
-    font-size: 12px;
-    letter-spacing: 6px;
-    pointer-events: none;
-  }
-
-  #instruction {
-    position: fixed;
-    bottom: 25px;
-    left: 50%;
-    transform: translateX(-50%);
-    color: rgba(255,255,255,.3);
-    font-size: 11px;
-    letter-spacing: 2px;
-    white-space: nowrap;
-    pointer-events: none;
-    transition: opacity 1s;
-  }
-
-  #dialogue {
-    position: fixed;
-    left: 50%;
-    bottom: 70px;
-    transform: translateX(-50%);
-    width: min(620px, 85vw);
-
-    padding: 22px 26px;
-
-    color: #ddd;
-    background: rgba(5,5,5,.82);
-    border: 1px solid rgba(255,255,255,.15);
-
-    font-size: 14px;
-    line-height: 1.8;
-    letter-spacing: .5px;
-
-    opacity: 0;
-    pointer-events: none;
-
-    transition: opacity .4s;
-  }
-
-  #dialogue.visible {
-    opacity: 1;
-  }
-
-  #ending {
-    position: fixed;
-    inset: 0;
-
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-
-    background: black;
-    color: white;
-
-    opacity: 0;
-    pointer-events: none;
-
-    transition: opacity 4s;
-  }
-
-  #ending.visible {
-    opacity: 1;
-  }
-
-  #endingText {
-    text-align: center;
-    font-size: 15px;
-    line-height: 2.2;
-    letter-spacing: 1px;
-  }
-
-  #sugar {
-    margin-top: 80px;
-    font-size: 11px;
-    letter-spacing: 12px;
-    opacity: 0;
-
-    transition: opacity 3s 4s;
-  }
-
-  #ending.visible #sugar {
-    opacity: .5;
-  }
 </style>
 </head>
-
 <body>
 
 <canvas id="game"></canvas>
 
-<div id="title">SUGAR</div>
-
-<div id="instruction">
-  ARROW KEYS / WASD
-</div>
-
-<div id="dialogue"></div>
-
-<div id="ending">
-  <div id="endingText">
-    슬픔이 다 닳아버린 후에는<br>
-    무엇을 가지고 놀아야 하나.
-  </div>
-
-  <div id="sugar">SUGAR</div>
-</div>
-
 <script>
+// --------------------------------------------------
+// SPRITE DATA (GAME_BIBLE §18, §19)
+// --------------------------------------------------
+
+const ANIMATIONS = {
+  idle: {
+    frames: [
+      "sprites/idle/idle_01.png",
+      "sprites/idle/idle_02.png"
+    ],
+    interval: 400,
+    anchorX: 172,
+    anchorY: 93,
+    loop: true
+  }
+};
+
+// --------------------------------------------------
+// CANVAS
+// --------------------------------------------------
 
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
-const dialogue = document.getElementById("dialogue");
-const instruction = document.getElementById("instruction");
-const ending = document.getElementById("ending");
-
-let W;
-let H;
+let W = 0;
+let H = 0;
 
 function resize() {
-  W = canvas.width = window.innerWidth;
-  H = canvas.height = window.innerHeight;
+  const dpr = window.devicePixelRatio || 1;
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = Math.round(W * dpr);
+  canvas.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // resizing the canvas resets context state, so set this every time
+  ctx.imageSmoothingEnabled = false;
 }
 
+window.addEventListener("resize", resize);
 resize();
 
-window.addEventListener("resize", resize);
+// --------------------------------------------------
+// ASSET LOADING
+// --------------------------------------------------
 
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Failed to load " + src));
+    img.src = src;
+  });
+}
+
+async function loadAnimations() {
+  for (const anim of Object.values(ANIMATIONS)) {
+    anim.images = await Promise.all(anim.frames.map(loadImage));
+  }
+}
 
 // --------------------------------------------------
-// WORLD
+// PLAYER
 // --------------------------------------------------
 
 const player = {
-  x: window.innerWidth / 2,
-  y: window.innerHeight / 2,
-  speed: 1.7
+  // world position of the BODY anchor
+  x: 0,
+  y: 0,
+  anim: "idle",
+  frame: 0,
+  frameTime: 0
 };
 
-const keys = {};
-
-let foundSugar = false;
-let memoryIndex = 0;
-let gameEnded = false;
-
-
-// --------------------------------------------------
-// STAR CANDY
-// --------------------------------------------------
-
-const sugar = {
-  x: window.innerWidth * 0.68,
-  y: window.innerHeight * 0.38,
-  size: 7
-};
-
-
-// --------------------------------------------------
-// MEMORIES
-// --------------------------------------------------
-
-const memories = [
-
-  {
-    x: window.innerWidth * 0.25,
-    y: window.innerHeight * 0.30,
-
-    text:
-      "첫째 개미가 말했다.<br><br>" +
-      "“난 네가 설탕을 싫어하는 줄 알았어.”"
-  },
-
-  {
-    x: window.innerWidth * 0.77,
-    y: window.innerHeight * 0.72,
-
-    text:
-      "둘째 개미가 말했다.<br><br>" +
-      "“너는 항상 제일 마지막에 먹었잖아.<br>" +
-      "그래서 욕심이 없는 줄 알았어.”"
-  },
-
-  {
-    x: window.innerWidth * 0.34,
-    y: window.innerHeight * 0.76,
-
-    text:
-      "셋째 개미가 한참 생각하다 말했다.<br><br>" +
-      "“나는 네가 꾀를 부리고 있는 줄 알았어.<br>" +
-      "늘.”"
-  }
-
-];
-
-
-// --------------------------------------------------
-// INPUT
-// --------------------------------------------------
-
-window.addEventListener("keydown", e => {
-
-  keys[e.key.toLowerCase()] = true;
-
-  instruction.style.opacity = 0;
-
-});
-
-window.addEventListener("keyup", e => {
-
-  keys[e.key.toLowerCase()] = false;
-
-});
-
-
-// --------------------------------------------------
-// DISTANCE
-// --------------------------------------------------
-
-function distance(a,b) {
-
-  return Math.hypot(
-    a.x - b.x,
-    a.y - b.y
-  );
-
-}
-
-
-// --------------------------------------------------
-// DIALOGUE
-// --------------------------------------------------
-
-let dialogueTimer;
-
-function showDialogue(text, duration = 4000) {
-
-  dialogue.innerHTML = text;
-
-  dialogue.classList.add("visible");
-
-  clearTimeout(dialogueTimer);
-
-  dialogueTimer = setTimeout(() => {
-
-    dialogue.classList.remove("visible");
-
-  }, duration);
-
-}
-
-
-// --------------------------------------------------
-// ANT DRAWING
-// --------------------------------------------------
-
-function drawAnt(x,y,scale=1, alpha=1) {
-
-  ctx.save();
-
-  ctx.translate(x,y);
-
-  ctx.globalAlpha = alpha;
-
-  ctx.fillStyle = "#d7d7d7";
-
-  // abdomen
-  ctx.beginPath();
-  ctx.ellipse(
-    -5*scale,
-    0,
-    4*scale,
-    3*scale,
-    0,
-    0,
-    Math.PI*2
-  );
-  ctx.fill();
-
-  // body
-  ctx.beginPath();
-  ctx.arc(
-    0,
-    0,
-    2.5*scale,
-    0,
-    Math.PI*2
-  );
-  ctx.fill();
-
-  // head
-  ctx.beginPath();
-  ctx.arc(
-    5*scale,
-    0,
-    2.8*scale,
-    0,
-    Math.PI*2
-  );
-  ctx.fill();
-
-  ctx.strokeStyle = "#aaa";
-  ctx.lineWidth = 1;
-
-  // legs
-  for(let i=-1;i<=1;i++){
-
-    ctx.beginPath();
-
-    ctx.moveTo(
-      i*2*scale,
-      -1*scale
-    );
-
-    ctx.lineTo(
-      (i*4-2)*scale,
-      -6*scale
-    );
-
-    ctx.stroke();
-
-
-    ctx.beginPath();
-
-    ctx.moveTo(
-      i*2*scale,
-      1*scale
-    );
-
-    ctx.lineTo(
-      (i*4-2)*scale,
-      6*scale
-    );
-
-    ctx.stroke();
-
-  }
-
-  // antennae
-
-  ctx.beginPath();
-
-  ctx.moveTo(
-    6*scale,
-    -1*scale
-  );
-
-  ctx.lineTo(
-    10*scale,
-    -5*scale
-  );
-
-  ctx.stroke();
-
-
-  ctx.beginPath();
-
-  ctx.moveTo(
-    6*scale,
-    1*scale
-  );
-
-  ctx.lineTo(
-    10*scale,
-    5*scale
-  );
-
-  ctx.stroke();
-
-  ctx.restore();
-
-}
-
-
-// --------------------------------------------------
-// SUGAR DRAWING
-// --------------------------------------------------
-
-function drawSugar() {
-
-  if(foundSugar) return;
-
-  ctx.save();
-
-  ctx.translate(
-    sugar.x,
-    sugar.y
-  );
-
-  ctx.fillStyle = "#d8d8d8";
-
-  ctx.globalAlpha = .8;
-
-  ctx.beginPath();
-
-  const points = 5;
-
-  for(let i=0;i<points*2;i++){
-
-    const angle =
-      (Math.PI / points) * i
-      - Math.PI/2;
-
-    const radius =
-      i%2===0
-      ? sugar.size
-      : sugar.size*.45;
-
-    const x =
-      Math.cos(angle)*radius;
-
-    const y =
-      Math.sin(angle)*radius;
-
-    if(i===0)
-      ctx.moveTo(x,y);
-    else
-      ctx.lineTo(x,y);
-
-  }
-
-  ctx.closePath();
-
-  ctx.fill();
-
-  ctx.restore();
-
-}
-
-
-// --------------------------------------------------
-// BACKGROUND
-// --------------------------------------------------
-
-const dust = [];
-
-for(let i=0;i<500;i++){
-
-  dust.push({
-
-    x: Math.random()*window.innerWidth,
-
-    y: Math.random()*window.innerHeight,
-
-    s: Math.random()*1.4,
-
-    a: Math.random()*.15
-
-  });
-
-}
-
-function drawBackground(){
-
-  ctx.fillStyle="#090909";
-
-  ctx.fillRect(
-    0,
-    0,
-    W,
-    H
-  );
-
-
-  dust.forEach(d=>{
-
-    ctx.globalAlpha=d.a;
-
-    ctx.fillStyle="#aaa";
-
-    ctx.fillRect(
-      d.x,
-      d.y,
-      d.s,
-      d.s
-    );
-
-  });
-
-  ctx.globalAlpha=1;
-
-}
-
-
-// --------------------------------------------------
-// UPDATE
-// --------------------------------------------------
-
-function update(){
-
-  if(gameEnded) return;
-
-
-  if(
-    keys["arrowup"] ||
-    keys["w"]
-  )
-    player.y -= player.speed;
-
-
-  if(
-    keys["arrowdown"] ||
-    keys["s"]
-  )
-    player.y += player.speed;
-
-
-  if(
-    keys["arrowleft"] ||
-    keys["a"]
-  )
-    player.x -= player.speed;
-
-
-  if(
-    keys["arrowright"] ||
-    keys["d"]
-  )
-    player.x += player.speed;
-
-
-  player.x =
-    Math.max(
-      20,
-      Math.min(W-20,player.x)
-    );
-
-
-  player.y =
-    Math.max(
-      20,
-      Math.min(H-20,player.y)
-    );
-
-
-  // discover sugar
-
-  if(
-    !foundSugar &&
-    distance(player,sugar)<25
-  ){
-
-    foundSugar=true;
-
-    showDialogue(
-      "이게 설탕이었다는 걸<br>아무도 믿지 않았다.",
-      4500
-    );
-
-  }
-
-
-  // memories unlock only after sugar
-
-  if(foundSugar){
-
-    const memory =
-      memories[memoryIndex];
-
-    if(
-      memory &&
-      distance(player,memory)<28
-    ){
-
-      showDialogue(
-        memory.text,
-        5000
-      );
-
-      memoryIndex++;
-
-      sugar.size =
-        Math.max(
-          1,
-          sugar.size-2
-        );
-
-
-      if(
-        memoryIndex >= memories.length
-      ){
-
-        setTimeout(
-          triggerEnding,
-          5500
-        );
-
-      }
-
+function updateAnimation(dt) {
+  const anim = ANIMATIONS[player.anim];
+  player.frameTime += dt;
+
+  while (player.frameTime >= anim.interval) {
+    player.frameTime -= anim.interval;
+    if (anim.loop) {
+      player.frame = (player.frame + 1) % anim.images.length;
+    } else {
+      player.frame = Math.min(player.frame + 1, anim.images.length - 1);
     }
-
   }
-
 }
 
+function drawPlayer() {
+  const anim = ANIMATIONS[player.anim];
+  const img = anim.images[player.frame];
 
-// --------------------------------------------------
-// ENDING
-// --------------------------------------------------
+  // draw so that the BODY anchor sits exactly on (player.x, player.y)
+  const drawX = Math.round(player.x - anim.anchorX);
+  const drawY = Math.round(player.y - anim.anchorY);
 
-function triggerEnding(){
-
-  if(gameEnded) return;
-
-  gameEnded=true;
-
-  dialogue.classList.remove("visible");
-
-  ending.classList.add("visible");
-
+  ctx.drawImage(img, drawX, drawY);
 }
 
-
 // --------------------------------------------------
-// DRAW
-// --------------------------------------------------
-
-function draw(){
-
-  drawBackground();
-
-  drawSugar();
-
-
-  // memory ants appear progressively
-
-  if(foundSugar){
-
-    memories.forEach(
-      (memory,index)=>{
-
-        if(index >= memoryIndex){
-
-          drawAnt(
-            memory.x,
-            memory.y,
-            .65,
-            .25
-          );
-
-        }
-
-      }
-    );
-
-  }
-
-
-  drawAnt(
-    player.x,
-    player.y,
-    .9,
-    .9
-  );
-
-}
-
-
-// --------------------------------------------------
-// GAME LOOP
+// LOOP
 // --------------------------------------------------
 
-function loop(){
+let lastTime = 0;
 
-  update();
+function loop(time) {
+  const dt = lastTime ? Math.min(time - lastTime, 250) : 0;
+  lastTime = time;
 
-  draw();
+  // keep the ant centred while there is no movement yet
+  player.x = W / 2;
+  player.y = H / 2;
+
+  updateAnimation(dt);
+
+  ctx.clearRect(0, 0, W, H);
+  drawPlayer();
 
   requestAnimationFrame(loop);
-
 }
 
-loop();
-
+loadAnimations()
+  .then(() => requestAnimationFrame(loop))
+  .catch(err => console.error(err));
 </script>
 
 </body>
